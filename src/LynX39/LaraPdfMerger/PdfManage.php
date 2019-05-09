@@ -8,16 +8,27 @@ use TCPDI;
 require_once('tcpdf/tcpdf.php');
 require_once('tcpdf/tcpdi.php');
 
-class PDFManage
+class PdfManage
 {
     private $_files;    //['form.pdf']  ["1,2,4, 5-19"]
     private $_fpdi;
+
+    public function init(){
+        $this->_files = null;
+
+        $this->_fpdi = new TCPDI;
+        $this->_fpdi->setPrintHeader(false);
+        $this->_fpdi->setPrintFooter(false);
+
+        return $this;
+    }
 
     /**
      * Add a PDF for inclusion in the merge with a valid file path. Pages should be formatted: 1,3,6, 12-16.
      * @param $filepath
      * @param $pages
-     * @return void
+     * @return PdfManage
+     * @throws Exception
      */
     public function addPDF($filepath, $pages = 'all', $orientation = null)
     {
@@ -36,62 +47,98 @@ class PDFManage
 
     /**
      * Merges your provided PDFs and outputs to specified location.
-     * @param $outputmode
-     * @param $outputname
      * @param $orientation
-     * @return PDF
+     * @param array $meta [title => $title, author => $author, subject => $subject, keywords => $keywords, creator => $creator]
+     * @param bool $duplex merge with
+     * @throws Exception
+     * @array $meta [title => $title, author => $author, subject => $subject, keywords => $keywords, creator => $creator]
      */
-    public function merge($outputmode = 'browser', $outputpath = 'newfile.pdf', $orientation = 'P')
+    private function doMerge($orientation = null, $meta = [], $duplex=false)
     {
         if (!isset($this->_files) || !is_array($this->_files)) {
             throw new Exception("No PDFs to merge.");
         }
 
-        $fpdi = new TCPDI;
-        $fpdi->setPrintHeader(false);
-        $fpdi->setPrintFooter(false);
+        // setting the meta tags
+        if (!empty($meta)) {
+            $this->setMeta($meta);
+        }
 
         // merger operations
         foreach ($this->_files as $file) {
-            $filename  = $file[0];
+            $filename = $file[0];
             $filepages = $file[1];
             $fileorientation = (!is_null($file[2])) ? $file[2] : $orientation;
 
-            $count = $fpdi->setSourceFile($filename);
+            $count = $this->_fpdi->setSourceFile($filename);
 
             //add the pages
             if ($filepages == 'all') {
-                for ($i=1; $i<=$count; $i++) {
-                    $template   = $fpdi->importPage($i);
-                    $size       = $fpdi->getTemplateSize($template);
+                for ($i = 1; $i <= $count; $i++) {
+                    $template = $this->_fpdi->importPage($i);
+                    $size = $this->_fpdi->getTemplateSize($template);
 
-                    $fpdi->AddPage($fileorientation, array($size['w'], $size['h']));
-                    $fpdi->useTemplate($template);
+                    if ($orientation == null) $fileorientation = $size['w'] < $size['h'] ? 'P' : 'L';
+
+                    $this->_fpdi->AddPage($fileorientation, array($size['w'], $size['h']));
+                    $this->_fpdi->useTemplate($template);
                 }
             } else {
                 foreach ($filepages as $page) {
-                    if (!$template = $fpdi->importPage($page)) {
+                    if (!$template = $this->_fpdi->importPage($page)) {
                         throw new Exception("Could not load page '$page' in PDF '$filename'. Check that the page exists.");
                     }
-                    $size = $fpdi->getTemplateSize($template);
+                    $size = $this->_fpdi->getTemplateSize($template);
 
-                    $fpdi->AddPage($fileorientation, array($size['w'], $size['h']));
-                    $fpdi->useTemplate($template);
+                    if ($orientation == null) $fileorientation = $size['w'] < $size['h'] ? 'P' : 'L';
+
+                    $this->_fpdi->AddPage($fileorientation, array($size['w'], $size['h']));
+                    $this->_fpdi->useTemplate($template);
+
                 }
             }
+            if ($duplex && $this->_fpdi->PageNo() % 2) {
+                $this->_fpdi->AddPage($fileorientation, [$size['w'], $size['h']]);
+            }
         }
+    }
 
+    /**
+     * Merges your provided PDFs and outputs to specified location.
+     * @param string $orientation
+     *
+     * @return void
+     *
+     * @throws \Exception if there are no PDFs to merge
+     */
+    public function merge($orientation = null, $meta = []) {
+        $this->doMerge($orientation, $meta, false);
+    }
+
+    /**
+     * Merges your provided PDFs and adds blank pages between documents as needed to allow duplex printing
+     * @param string $orientation
+     *
+     * @return void
+     *
+     * @throws \Exception if there are no PDFs to merge
+     */
+    public function duplexMerge($orientation = null, $meta = []) {
+        $this->doMerge($orientation, $meta, true);
+    }
+
+    public function save($outputpath = 'newfile.pdf', $outputmode = 'file')
+    {
         //output operations
         $mode = $this->_switchmode($outputmode);
 
         if ($mode == 'S') {
-            return $fpdi->Output($outputpath, 'S');
+            return $this->_fpdi->Output($outputpath, 'S');
         } else {
-            if ($fpdi->Output($outputpath, $mode) == '') {
+            if ($this->_fpdi->Output($outputpath, $mode) == '') {
                 return true;
             } else {
                 throw new Exception("Error outputting PDF to '$outputmode'.");
-                return false;
             }
         }
 
@@ -128,7 +175,8 @@ class PDFManage
     /**
      * Takes our provided pages in the form of 1,3,4,16-50 and creates an array of all pages
      * @param $pages
-     * @return unknown_type
+     * @return array
+     * @throws Exception
      */
     private function _rewritepages($pages)
     {
@@ -145,7 +193,6 @@ class PDFManage
 
                 if ($x > $y) {
                     throw new Exception("Starting page, '$x' is greater than ending page '$y'.");
-                    return false;
                 }
 
                 //add middle pages
@@ -161,6 +208,19 @@ class PDFManage
         return $newpages;
     }
 
-
+    /**
+     * Set your meta data in merged pdf
+     * @param array $meta [title => $title, author => $author, subject => $subject, keywords => $keywords, creator => $creator]
+     * @return TCPDI $fpdi
+     */
+    protected function setMeta($meta)
+    {
+        foreach ($meta as $key => $arg) {
+            $metodName = 'set' . ucfirst($key);
+            if (method_exists($this->_fpdi, $metodName)) {
+                $this->_fpdi->$metodName($arg);
+            }
+        }
+    } 
 
 }
