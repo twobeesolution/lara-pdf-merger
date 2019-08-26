@@ -26,7 +26,7 @@ composer require daltcore/lara-pdf-merger
 ```bash
 composer update
 ```
-### Laravel 5.0 - Laravel 5.4, not needed Laravel 5.5+:
+### Laravel 5.0 - 5.4, not needed Laravel 5.5+:
 
 After updating composer, add the ServiceProvider to the providers array in config/app.php
 ```php
