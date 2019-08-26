@@ -35,7 +35,7 @@
                 " LynX39\\LaraPdfMerger\\PdfMergerServiceProvider"
             ],
             "aliases": {
-                "PdfMerger": "LynX39\LaraPdfMerger\Facades\PdfMerger"
+                "PdfMerger": "LynX39\\LaraPdfMerger\\Facades\\PdfMerger"
             }
         }
     }
